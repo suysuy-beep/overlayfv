@@ -1,106 +1,217 @@
 'use strict';
-const {app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, clipboard, shell} = require('electron');
+const {app, BrowserWindow, ipcMain, Tray, Menu, screen, clipboard, globalShortcut, desktopCapturer} = require('electron');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
+const {URL} = require('url');
 
 const APP_NAME = 'SuyTools Taller';
-const BASE = {width:496, side:'right', opacity:1, topmost:true};
-let settings={...BASE}, win, tray, quitting=false, settingsPath, budgetPath;
+const ROOT = path.join(__dirname, 'app');
+const BASE = {width:496, side:'right', opacity:1, topmost:true,
+  hotkeys:{toggle:'Control+Alt+O',capture:'Control+Alt+P'}};
 const WIDTHS = [420,496,560];
-function clamp(value, a, b){return Math.min(b,Math.max(a,value));}
+const ALLOWED_SHORTCUTS = ['Control+Alt+O','Control+Alt+P','Control+Alt+T', 'Control+Shift+F9',
+  'Control+Shift+F10','F9','F10','F11','F12'];
+let settings={...BASE, hotkeys:{...BASE.hotkeys}};
+let win, tray, server, settingsPath, budgetPath, quitting=false, captureBusy=false;
+let hotkeyStatus={toggle:false,capture:false};
+const ownedShortcuts=new Set();
+
 function loadSettings(){
-  settingsPath=path.join(app.getPath('userData'),'overlay-settings.json');
-  budgetPath=path.join(app.getPath('userData'),'taller-budget.json');
-  try {
-    const saved=JSON.parse(fs.readFileSync(settingsPath,'utf8'));
-    settings.width=WIDTHS.includes(saved.width)?saved.width:BASE.width;
-    settings.side=saved.side==='left'?'left':'right';
-    settings.opacity=[1,.95,.9].includes(saved.opacity)?saved.opacity:1;
-    settings.topmost=saved.topmost!==false;
-  } catch (_) {}
+  const dataDir=app.getPath('userData');
+  settingsPath=path.join(dataDir,'overlay-settings.json');
+  budgetPath=path.join(dataDir,'taller-budget.json');
+  try{
+    const data=JSON.parse(fs.readFileSync(settingsPath,'utf8'));
+    settings.width=WIDTHS.includes(data.width)?data.width:BASE.width;
+    settings.side=data.side==='left'?'left':'right';
+    settings.opacity=[1,.95,.9].includes(data.opacity)?data.opacity:1;
+    settings.topmost=data.topmost!==false;
+    for(const type of ['toggle','capture']){
+      const key=data.hotkeys?.[type];
+      if(ALLOWED_SHORTCUTS.includes(key))settings.hotkeys[type]=key;
+    }
+    if(settings.hotkeys.toggle===settings.hotkeys.capture)settings.hotkeys={...BASE.hotkeys};
+  }catch{}
 }
-function saveSettings(){try{fs.mkdirSync(path.dirname(settingsPath),{recursive:true});fs.writeFileSync(settingsPath,JSON.stringify(settings,null,2));}catch(err){console.warn('No se pudo guardar la configuración',err.message);}}
+function saveSettings(){try{fs.mkdirSync(path.dirname(settingsPath),{recursive:true});fs.writeFileSync(settingsPath,JSON.stringify(settings,null,2));}catch(e){console.warn('No se guardaron ajustes',e.message);}}
+function getDisplay(){
+  return screen.getDisplayMatching(win?.getBounds()||screen.getPrimaryDisplay().workArea);
+}
 function boundsFor(width=settings.width){
   const work=screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
   const safeWidth=Math.min(width,Math.max(340,work.width-20));
   const height=Math.min(1000,Math.max(460,work.height-28));
   return {x:settings.side==='right'?work.x+work.width-safeWidth-10:work.x+10,y:work.y+Math.round((work.height-height)/2),width:safeWidth,height};
 }
+function publicSettings(){return {...settings,hotkeys:{...settings.hotkeys},registered:{...hotkeyStatus}};}
+function emitSettings(){if(win&&!win.isDestroyed()&&!win.webContents.isLoading())win.webContents.send('suy:settings',publicSettings());}
+function showWindow(){if(!win||win.isDestroyed())return;if(win.isMinimized())win.restore();win.show();win.focus();updateTray();}
+function hideWindow(){if(!win||win.isDestroyed())return;win.hide();updateTray();}
+function toggleWindow(){if(win?.isVisible())hideWindow();else showWindow();}
 function applySettings(){
   if(!win||win.isDestroyed())return;
-  win.setBounds(boundsFor());
-  win.setOpacity(settings.opacity);
-  win.setAlwaysOnTop(settings.topmost, 'floating');
-  updateTray();
-  win.webContents.send('suy:settings',settings);
+  win.setBounds(boundsFor());win.setOpacity(settings.opacity);
+  win.setAlwaysOnTop(settings.topmost,'floating');updateTray();emitSettings();
 }
-function showWindow(){
-  if(!win||win.isDestroyed())return;
-  if(win.isMinimized())win.restore();
-  win.show();win.focus();
-  updateTray();
+function registerHotkeys(){
+  // Only unregister the shortcuts our app owns. Never disturb other apps.
+  for(const key of ownedShortcuts){
+    if(globalShortcut.isRegistered(key))globalShortcut.unregister(key);
+  }
+  ownedShortcuts.clear();
+  hotkeyStatus={toggle:false,capture:false};
+  if(settings.hotkeys.toggle!==settings.hotkeys.capture){
+    try{hotkeyStatus.toggle=globalShortcut.register(settings.hotkeys.toggle,toggleWindow);if(hotkeyStatus.toggle)ownedShortcuts.add(settings.hotkeys.toggle);}catch(e){console.warn('Atajo mostrar/ocultar:',e.message);}
+    try{hotkeyStatus.capture=globalShortcut.register(settings.hotkeys.capture,()=>{
+      if(captureBusy)return;
+      captureDisplay().then(snapshot=>{
+        showWindow();win.webContents.send('suy:captured',snapshot);
+      }).catch(error=>{
+        showWindow();win.webContents.send('suy:captureError',error.message);
+      });
+    });if(hotkeyStatus.capture)ownedShortcuts.add(settings.hotkeys.capture);}catch(e){console.warn('Atajo captura:',e.message);}
+  }
+  emitSettings();return {...hotkeyStatus};
 }
-function hideWindow(){if(win&&!win.isDestroyed()){win.hide();updateTray();}}
 function updateTray(){if(!tray)return;
-  tray.setToolTip(APP_NAME + (win&&win.isVisible()?' — abierto':' — oculto'));
+  tray.setToolTip(APP_NAME + (win?.isVisible()?' — abierto':' — oculto'));
   tray.setContextMenu(Menu.buildFromTemplate([
     {label:'Mostrar calculadora',click:showWindow},
-    {label:'Ocultar calculadora',enabled:!!win&&win.isVisible(),click:hideWindow},
+    {label:'Ocultar calculadora',enabled:!!win?.isVisible(),click:hideWindow},
+    {label:'Capturar pantalla',click:()=>captureDisplay().then(snapshot=>{showWindow();win.webContents.send('suy:captured',snapshot);}).catch(e=>{showWindow();win.webContents.send('suy:captureError',e.message);})},
     {type:'separator'},
     {label:'Siempre encima',type:'checkbox',checked:settings.topmost,click:item=>{settings.topmost=item.checked;saveSettings();applySettings();}},
     {type:'separator'},
     {label:'Salir de SuyTools',click:()=>{quitting=true;app.quit();}}
   ]));
 }
-function createMainWindow(){
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function captureDisplay(){
+  if(captureBusy)throw new Error('Ya hay una captura en proceso.');
+  captureBusy=true;
+  const target=getDisplay();
+  const wasVisible=!!win?.isVisible();
+  try{
+    if(wasVisible){win.hide();await sleep(480);}
+    // Captura única; no crea archivos ni mantiene grabaciones en segundo plano.
+    const sources=await desktopCapturer.getSources({types:['screen'],fetchWindowIcons:false,
+      thumbnailSize:{width:Math.min(4096,Math.round(target.size.width*target.scaleFactor)),
+        height:Math.min(2560,Math.round(target.size.height*target.scaleFactor))}});
+    const source=sources.find(item=>item.display_id===String(target.id)) ||
+      (sources.length===1?sources[0]:null);
+    if(!source||source.thumbnail.isEmpty())throw new Error('No se pudo capturar el monitor. Prueba FiveM en modo sin bordes o usa «Importar captura».');
+    const dimensions=source.thumbnail.getSize();
+    if(dimensions.width<50||dimensions.height<50)throw new Error('La captura llegó vacía.');
+    return {dataUrl:source.thumbnail.toDataURL(),width:dimensions.width,height:dimensions.height};
+  }finally{
+    if(wasVisible)showWindow();
+    captureBusy=false;
+  }
+}
+const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8',
+  '.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.gz':'application/gzip','.wasm':'application/wasm',
+  '.txt':'text/plain; charset=utf-8','.json':'application/json; charset=utf-8'};
+function startAppServer(){
+  // http://127.0.0.1 hace que los Workers offline de OCR funcionen en Electron.
+  // Solo escucha en la máquina local y solo entrega archivos estáticos de /app.
+  return new Promise((resolve,reject)=>{
+    server=http.createServer((req,res)=>{
+      if(req.method!=='GET'){res.writeHead(405);return res.end();}
+      let pathname;
+      try{pathname=decodeURIComponent(new URL(req.url,'http://127.0.0.1').pathname);}catch{res.writeHead(400);return res.end();}
+      if(pathname.includes('\0')){res.writeHead(400);return res.end();}
+      const full=path.resolve(ROOT,'.'+(pathname==='/'?'/index.html':pathname));
+      if(full!==path.join(ROOT,'index.html')&&!full.startsWith(ROOT+path.sep)){
+        res.writeHead(403);return res.end();
+      }
+      fs.stat(full,(err,stat)=>{
+        if(err||!stat.isFile()){res.writeHead(404);return res.end();}
+        res.writeHead(200,{
+          'Content-Type':MIME[path.extname(full).toLowerCase()]||'application/octet-stream',
+          'Cache-Control':'no-store',
+          'X-Content-Type-Options':'nosniff',
+          'Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; img-src 'self' data: blob:; connect-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        });fs.createReadStream(full).pipe(res);
+      });
+    });
+    server.on('error',reject);
+    server.listen(0,'127.0.0.1',()=>resolve('http://127.0.0.1:'+server.address().port+'/'));
+  });
+}
+async function createMainWindow(){
+  const url=await startAppServer();
   win=new BrowserWindow({
     ...boundsFor(),minWidth:360,minHeight:480,frame:false,transparent:true,backgroundColor:'#00000000',
     useContentSize:true,show:false,resizable:true,movable:true,focusable:true,skipTaskbar:false,
     icon:path.join(__dirname,'assets','icon.png'),
-    webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,
-      webSecurity:true,devTools:!app.isPackaged,backgroundThrottling:false}
+    webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,
+      sandbox:true,webSecurity:true,devTools:!app.isPackaged,backgroundThrottling:false}
   });
   win.setMenuBarVisibility(false);
-  win.setAlwaysOnTop(settings.topmost,'floating');
-  win.setOpacity(settings.opacity);
+  win.setAlwaysOnTop(settings.topmost,'floating');win.setOpacity(settings.opacity);
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
-  win.webContents.on('will-navigate',e=>e.preventDefault());
-  win.webContents.session.setPermissionRequestHandler((_webContents,_permission,callback)=>callback(false));
-  win.loadFile(path.join(__dirname,'app','index.html'));
-  win.once('ready-to-show',()=>{win.show();updateTray();});
+  win.webContents.on('will-navigate',(e,url)=>{if(url!==win.webContents.getURL())e.preventDefault();});
+  win.webContents.session.setPermissionRequestHandler((_wc,_p,callback)=>callback(false));
+  await win.loadURL(url);
+  showWindow();emitSettings();
   win.on('minimize',e=>{e.preventDefault();hideWindow();});
   win.on('close',e=>{if(!quitting){e.preventDefault();hideWindow();}});
   win.on('show',updateTray);win.on('hide',updateTray);
-  // If a user resizes manually, the current window size is kept until a width preset is chosen.
+  registerHotkeys();
 }
-function validateInvoke(fn){return e=>e.sender===win?.webContents?fn():null;}
-app.whenReady().then(()=>{
+const authorized=e=>win&&!win.isDestroyed()&&e.sender===win.webContents;
+app.whenReady().then(async()=>{
   app.setAppUserModelId('com.suytools.taller');
+  if(!app.requestSingleInstanceLock()){app.quit();return;}
+  app.on('second-instance',showWindow);
   loadSettings();
   tray=new Tray(path.join(__dirname,'assets','tray.png'));
-  tray.on('click',()=>win&&win.isVisible()?hideWindow():showWindow());
-  createMainWindow();updateTray();
-  ipcMain.handle('suy:getSettings',validateInvoke(()=>({...settings})));
-  ipcMain.on('suy:loadBudgetSync',event=>{
-    if(event.sender!==win?.webContents){event.returnValue=null;return;}
-    try{const data=fs.readFileSync(budgetPath,'utf8');event.returnValue=data.length<50000?JSON.parse(data):null;}
-    catch{event.returnValue=null;}
+  tray.on('click',toggleWindow);updateTray();
+  ipcMain.handle('suy:getSettings',e=>authorized(e)?publicSettings():null);
+  ipcMain.on('suy:loadBudgetSync',e=>{
+    if(!authorized(e)){e.returnValue=null;return;}
+    try{const content=fs.readFileSync(budgetPath,'utf8');e.returnValue=content.length<50000?JSON.parse(content):null;}
+    catch{e.returnValue=null;}
   });
-  ipcMain.on('suy:saveBudget',(event,data)=>{
-    if(event.sender!==win?.webContents || typeof data!=='string' || data.length>50000)return;
-    try{JSON.parse(data);fs.writeFileSync(budgetPath,data,'utf8');}catch(err){console.warn('No se pudo guardar el presupuesto:',err.message);}
+  ipcMain.on('suy:saveBudget',(e,data)=>{
+    if(!authorized(e)||typeof data!=='string'||data.length>50000)return;
+    try{JSON.parse(data);fs.writeFileSync(budgetPath,data,'utf8');}catch(err){console.warn('No se pudo guardar presupuesto',err.message);}
   });
-  ipcMain.handle('suy:hide',validateInvoke(hideWindow));
-  ipcMain.handle('suy:copy', (e,value)=>{if(e.sender!==win?.webContents)return false;if(typeof value!=='string'||value.length>10000)return false;clipboard.writeText(value);return true;});
+  ipcMain.handle('suy:hide',e=>authorized(e)?hideWindow():null);
+  ipcMain.handle('suy:copy',(e,value)=>{
+    if(!authorized(e)||typeof value!=='string'||value.length>10000)return false;
+    clipboard.writeText(value);return true;
+  });
+  ipcMain.handle('suy:capture',e=>{
+    if(!authorized(e))throw new Error('Ventana no autorizada.');
+    return captureDisplay();
+  });
   ipcMain.handle('suy:configure',(e,patch)=>{
-    if(e.sender!==win?.webContents || !patch || typeof patch!=='object')return null;
+    if(!authorized(e)||!patch||typeof patch!=='object')return null;
     if(WIDTHS.includes(patch.width))settings.width=patch.width;
     if(['left','right'].includes(patch.side))settings.side=patch.side;
     if([1,.95,.9].includes(patch.opacity))settings.opacity=patch.opacity;
     if(typeof patch.topmost==='boolean')settings.topmost=patch.topmost;
-    saveSettings();applySettings();return {...settings};
+    if(patch.hotkeys){
+      const incoming={...settings.hotkeys};
+      for(const name of ['toggle','capture'])if(ALLOWED_SHORTCUTS.includes(patch.hotkeys[name]))incoming[name]=patch.hotkeys[name];
+      if(incoming.toggle!==incoming.capture){
+        const previous={...settings.hotkeys};settings.hotkeys=incoming;
+        const status=registerHotkeys();
+        if(!status.toggle||!status.capture){
+          // Si un juego u otra app ocupa esa tecla, recupera la combinación anterior.
+          settings.hotkeys=previous;registerHotkeys();
+          const error=new Error('Esa combinación ya está en uso. Prueba otra.');
+          error.code='HOTKEY_TAKEN';throw error;
+        }
+      }
+    }
+    saveSettings();applySettings();return publicSettings();
   });
+  try{await createMainWindow();}catch(error){console.error('SuyTools no pudo iniciar:',error);app.quit();}
 });
 app.on('activate',showWindow);
-app.on('window-all-closed',()=>{}); // sigue disponible desde la bandeja
+app.on('window-all-closed',()=>{});
+app.on('will-quit',()=>{globalShortcut.unregisterAll();server?.close();});
 app.on('before-quit',()=>{quitting=true;});

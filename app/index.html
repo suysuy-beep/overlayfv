@@ -135,7 +135,24 @@ $('#copyDetails').addEventListener('click',()=>copy($('#detailsText').value||job
 $('#detailsText').addEventListener('input',()=>{});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#search').focus();$('#search').select()}});
 renderAll();
+// Interface segura para importar una orden: no reemplaza datos sin confirmación.
+window.suyCaptureBridge=Object.freeze({
+  products:()=>CATALOG.map(p=>({id:p.id,name:p.name,price:p.price})),
+  quantities:()=>({...state.qty}),
+  discount:()=>state.discount,
+  apply:quantities=>{
+    const validIds=new Set(CATALOG.map(p=>p.id));
+    const next={};
+    for(const [id,q] of Object.entries(quantities)){
+      const n=Number(q);
+      if(validIds.has(id)&&Number.isInteger(n)&&n>=0&&n<=99)next[id]=n;
+    }
+    state.qty=next;renderAll();
+  },
+  toast:notify
+});
 </script>
 <script src="overlay-ui.js"></script>
+<script type="module" src="capture-ui.js"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 {
   "name": "suytools-taller-overlay",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Calculadora compacta de taller en una ventana flotante para FiveM",
   "author": "SuyTools",
   "main": "main.js",
@@ -8,7 +8,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "dist:win": "electron-builder --win nsis --x64"
+    "dist:win": "electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
     "electron": "35.7.5",
