@@ -98,6 +98,30 @@ function boundsFor(width=settings.width){
   return {x:settings.side==='right'?work.x+work.width-safeWidth-10:work.x+10,y:work.y+Math.round((work.height-height)/2),width:safeWidth,height};
 }
 
+// Clip the *native* opaque Windows window to a rounded rectangle.
+// CSS border-radius alone cannot remove the square pixels of BrowserWindow's
+// opaque background outside the web content. Keep transparent:false: the old
+// Windows caption glitch reappeared on transparent windows when unfocused.
+function applyRoundedWindowShape(){
+  if(process.platform!=='win32'||!win||win.isDestroyed()||typeof win.setShape!=='function')return;
+  try{
+    const [width,height]=win.getContentSize();
+    if(width<80||height<80)return;
+    const radius=18;
+    const rects=[{x:0,y:radius,width,height:height-radius*2}];
+    // Integer scanlines avoid jagged diagonals and allow the desktop to show
+    // through real clipped corner pixels (not fake transparent CSS corners).
+    for(let y=0;y<radius;y++){
+      const dy=radius-y-0.5;
+      const inset=Math.ceil(radius-Math.sqrt(radius*radius-dy*dy));
+      const row={x:inset,width:width-inset*2,height:1};
+      rects.push({...row,y});
+      rects.push({...row,y:height-1-y});
+    }
+    win.setShape(rects);
+  }catch(error){console.warn('No se pudo redondear la ventana:',error.message);}
+}
+
 function publicSettings(){return {...settings,hotkeys:{...settings.hotkeys},registered:{...hotkeyStatus}};}
 function emitSettings(){if(win&&!win.isDestroyed()&&!win.webContents.isLoading())win.webContents.send('suy:settings',publicSettings());}
 function showWindow(){if(!win||win.isDestroyed())return;if(win.isMinimized())win.restore();win.show();win.focus();updateTray();}
@@ -105,7 +129,7 @@ function hideWindow(){if(!win||win.isDestroyed())return;win.hide();updateTray();
 function toggleWindow(){if(win?.isVisible())hideWindow();else showWindow();}
 function applySettings(){
   if(!win||win.isDestroyed())return;
-  win.setBounds(boundsFor());win.setOpacity(settings.opacity);
+  win.setBounds(boundsFor());applyRoundedWindowShape();win.setOpacity(settings.opacity);
   win.setAlwaysOnTop(true,'screen-saver');updateTray();emitSettings();
 }
 function registerHotkeys(){
@@ -205,6 +229,7 @@ async function createMainWindow(){
     webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,
       sandbox:true,webSecurity:true,devTools:!app.isPackaged,backgroundThrottling:false}
   });
+  applyRoundedWindowShape();
   // Frameless window: no native Windows caption strip, just our own dark header.
   // Prevent older page titles from being displayed in native UI.
   win.webContents.on('page-title-updated',event=>event.preventDefault());
@@ -220,7 +245,8 @@ async function createMainWindow(){
   win.on('close',e=>{if(!quitting){e.preventDefault();hideWindow();}});
   win.on('show',updateTray);win.on('hide',updateTray);
   const rememberBounds=()=>{if(win?.isDestroyed())return;const b=win.getBounds();if(b.width>=380&&b.height>=480){settings.manualBounds=b;saveSettingsSoon();}};
-  win.on('resize',rememberBounds);win.on('moved',rememberBounds);
+  win.on('resize',()=>{applyRoundedWindowShape();rememberBounds();});
+  win.on('moved',rememberBounds);
   // No modify window styles on blur: Electron/Windows may redraw a native caption strip.
   // Always-on-top is configured once in setup/applySettings, not every time FiveM receives focus.
 
@@ -290,6 +316,7 @@ app.whenReady().then(async()=>{
       w=Math.max(380,Math.min(Math.round(width),area.x+area.width-b.x));
     }
     win.setBounds({x,y:b.y,width:w,height:newHeight});
+    applyRoundedWindowShape();
     settings.manualBounds=win.getBounds();saveSettingsSoon();
     return {width:w,height:newHeight};
   });
