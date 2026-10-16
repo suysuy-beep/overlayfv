@@ -8,11 +8,26 @@ const {autoUpdater} = require('electron-updater');
 
 const APP_NAME = 'SuyTools Taller';
 const ROOT = path.join(__dirname, 'app');
-const BASE = {width:496, side:'right', opacity:1, topmost:true, manualBounds:null,
+const BASE = {width:496, side:'right', opacity:1, topmost:true, manualBounds:null, accent:'#e98faf',
   hotkeys:{toggle:'Control+Alt+O',capture:'Control+Alt+P'}};
 const WIDTHS = [420,496,560];
-const ALLOWED_SHORTCUTS = ['Control+Alt+O','Control+Alt+P','Control+Alt+T', 'Control+Shift+F9',
-  'Control+Shift+F10','F9','F10','F11','F12'];
+// Validación de combinaciones manuales antes de pasarlas al sistema operativo.
+function validHotkey(accelerator){
+  if(typeof accelerator!=='string'||accelerator.length>64)return false;
+  const parts=accelerator.split('+');
+  const key=parts.pop();
+  if(!key || parts.some((p,i)=>!['Control','Alt','Shift'].includes(p)||parts.indexOf(p)!==i))return false;
+  if(parts.join('+')!==['Control','Alt','Shift'].filter(k=>parts.includes(k)).join('+'))return false;
+  const fkey=/^F(?:[1-9]|1\d|2[0-4])$/.test(key);
+  const alnum=/^[A-Z0-9]$/.test(key);
+  const numpad=/^num(?:[0-9]|add|sub|mult|div|dec)$/.test(key);
+  // Letras y números normales sin modificador afectarían al escribir dentro del juego.
+  if(!fkey&&!numpad&&!alnum)return false;
+  if(alnum&&!parts.length)return false;
+  if(parts.length===1&&parts[0]==='Alt'&&key==='F4')return false;
+  if(parts.join('+')==='Control+Shift'&&key==='Escape')return false;
+  return true;
+}
 let settings={...BASE, hotkeys:{...BASE.hotkeys}};
 let win, tray, server, settingsPath, budgetPath, baduPath, quitting=false, captureBusy=false;
 let hotkeyStatus={toggle:false,capture:false};
@@ -67,12 +82,13 @@ function loadSettings(){
     settings.width=WIDTHS.includes(data.width)?data.width:BASE.width;
     settings.side=data.side==='left'?'left':'right';
     settings.opacity=[1,.95,.9].includes(data.opacity)?data.opacity:1;
+    settings.accent=/^#[0-9a-f]{6}$/i.test(data.accent||'')?data.accent.toLowerCase():BASE.accent;
     settings.topmost=true; // El panel siempre queda encima, sin esconderse al perder foco.
     const b=data.manualBounds;
     settings.manualBounds=b&&['x','y','width','height'].every(k=>Number.isFinite(b[k]))&&b.width>=380&&b.height>=480?{x:Math.round(b.x),y:Math.round(b.y),width:Math.round(b.width),height:Math.round(b.height)}:null;
     for(const type of ['toggle','capture']){
       const key=data.hotkeys?.[type];
-      if(ALLOWED_SHORTCUTS.includes(key))settings.hotkeys[type]=key;
+      if(validHotkey(key))settings.hotkeys[type]=key;
     }
     if(settings.hotkeys.toggle===settings.hotkeys.capture)settings.hotkeys={...BASE.hotkeys};
   }catch{}
@@ -337,20 +353,56 @@ app.whenReady().then(async()=>{
     }
     if(['left','right'].includes(patch.side)&&patch.side!==settings.side){settings.side=patch.side;settings.manualBounds=null;}
     if([1,.95,.9].includes(patch.opacity))settings.opacity=patch.opacity;
+    if(Object.prototype.hasOwnProperty.call(patch,'accent')){
+      if(typeof patch.accent!=='string'||!/^#[0-9a-f]{6}$/i.test(patch.accent))throw new Error('Color inválido.');
+      settings.accent=patch.accent.toLowerCase();
+    }
     settings.topmost=true;
     if(patch.hotkeys){
       const incoming={...settings.hotkeys};
-      for(const name of ['toggle','capture'])if(ALLOWED_SHORTCUTS.includes(patch.hotkeys[name]))incoming[name]=patch.hotkeys[name];
-      if(incoming.toggle!==incoming.capture){
-        const previous={...settings.hotkeys};settings.hotkeys=incoming;
-        const status=registerHotkeys();
-        if(!status.toggle||!status.capture){
-          // Si un juego u otra app ocupa esa tecla, recupera la combinación anterior.
-          settings.hotkeys=previous;registerHotkeys();
-          const error=new Error('Esa combinación ya está en uso. Prueba otra.');
-          error.code='HOTKEY_TAKEN';throw error;
+      for(const name of ['toggle','capture']){
+        if(Object.prototype.hasOwnProperty.call(patch.hotkeys,name)){
+          if(!validHotkey(patch.hotkeys[name])){
+            const error=new Error('Atajo no válido: usa una tecla F, un número del teclado numérico o Ctrl/Alt + una letra.');
+            error.code='INVALID_HOTKEY';throw error;
+          }
+          incoming[name]=patch.hotkeys[name];
         }
       }
+      if(incoming.toggle===incoming.capture){
+        const error=new Error('Mostrar/ocultar y capturar necesitan atajos distintos.');
+        error.code='DUPLICATE_HOTKEY';throw error;
+      }
+      // Conserva los atajos que ya funcionan; solo sustituye el que cambió.
+      // Así cambiar "mostrar" no obliga a que el atajo de captura esté libre.
+      const previous={...settings.hotkeys};
+      const actions={toggle:toggleWindow,capture:()=>{
+        if(captureBusy)return;
+        captureDisplay().then(snapshot=>{
+          showWindow();win.webContents.send('suy:captured',snapshot);
+        }).catch(error=>{
+          showWindow();win.webContents.send('suy:captureError',error.message);
+        });
+      }};
+      for(const name of ['toggle','capture']){
+        const next=incoming[name];
+        if(next===previous[name])continue;
+        let registered=false;
+        try{registered=globalShortcut.register(next,actions[name]);}
+        catch(error){console.warn('Atajo ocupado:',error.message);}
+        if(!registered){
+          const error=new Error('Ese atajo ya lo está usando Windows, FiveM u otra aplicación. Prueba otra combinación.');
+          error.code='HOTKEY_TAKEN';throw error;
+        }
+        ownedShortcuts.add(next);
+        if(ownedShortcuts.has(previous[name])){
+          globalShortcut.unregister(previous[name]);
+          ownedShortcuts.delete(previous[name]);
+        }
+        settings.hotkeys[name]=next;
+        hotkeyStatus[name]=true;
+      }
+      emitSettings();
     }
     saveSettings();applySettings();return publicSettings();
   });

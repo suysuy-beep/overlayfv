@@ -50,3 +50,20 @@ $('#restorePrices').addEventListener('click',()=>{PRODUCTS.forEach(p=>{const inp
 $('#pricesForm').addEventListener('submit',e=>{e.preventDefault();products=products.map(p=>({...p,price:price($(`[data-price="${p.id}"]`).value,p.price)}));$('#pricesDialog').close();render();notify('Precios guardados');});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#search').focus();$('#search').select();}});
 render();
+
+// The theme is shared with the containing SuyTools window.
+// Only messages from the same-origin parent are accepted.
+window.addEventListener('message', event=>{
+  if(event.source!==window.parent || event.origin!==window.location.origin)return;
+  if(event.data?.type==='suy:theme' && /^#[0-9a-f]{6}$/i.test(event.data.accent||'')){
+    document.documentElement.style.setProperty('--suy-accent',event.data.accent.toLowerCase());
+    if(['#201622','#fff8fd'].includes(event.data.text))document.documentElement.style.setProperty('--suy-accent-text',event.data.text);
+  }
+});
+try{
+  const initial=window.parent.document.documentElement.style.getPropertyValue('--suy-accent').trim();
+  if(/^#[0-9a-f]{6}$/i.test(initial)){document.documentElement.style.setProperty('--suy-accent',initial);
+    const ink=window.parent.document.documentElement.style.getPropertyValue('--suy-accent-text').trim();
+    if(['#201622','#fff8fd'].includes(ink))document.documentElement.style.setProperty('--suy-accent-text',ink);
+  }
+}catch{}
