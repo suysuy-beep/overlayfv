@@ -185,7 +185,7 @@ function startAppServer(){
           'Content-Type':MIME[path.extname(full).toLowerCase()]||'application/octet-stream',
           'Cache-Control':'no-store',
           'X-Content-Type-Options':'nosniff',
-          'Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; img-src 'self' data: blob:; connect-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+          'Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; img-src 'self' data: blob:; connect-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'"
         });fs.createReadStream(full).pipe(res);
       });
     });
@@ -196,15 +196,16 @@ function startAppServer(){
 async function createMainWindow(){
   const url=await startAppServer();
   win=new BrowserWindow({
-    ...boundsFor(),title:' ',minWidth:380,minHeight:480,thickFrame:true,frame:false,transparent:true,backgroundColor:'#00000000',
+    ...boundsFor(),title:'SuyTools',minWidth:380,minHeight:480,thickFrame:false,hasShadow:false,frame:false,transparent:true,backgroundColor:'#00000000',
     useContentSize:true,show:false,resizable:true,movable:true,focusable:true,skipTaskbar:false,
     icon:path.join(__dirname,'assets','icon.png'),
     webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,
       sandbox:true,webSecurity:true,devTools:!app.isPackaged,backgroundThrottling:false}
   });
-  // No native title strip or OS tooltip with the obsolete HTML page title.
-  win.webContents.on('page-title-updated',(event)=>{event.preventDefault();win.setTitle(' ');});
-  win.setTitle(' ');
+  // Frameless window: no native Windows caption strip, just our own dark header.
+  // Prevent older page titles from being displayed in native UI.
+  win.webContents.on('page-title-updated',event=>event.preventDefault());
+  win.setTitle('SuyTools');
   win.setMenuBarVisibility(false);
   win.setAlwaysOnTop(true,'screen-saver');win.setOpacity(settings.opacity);
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
