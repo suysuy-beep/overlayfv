@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Badulak</title>
+<link rel="stylesheet" href="./compact.css" />
+</head>
+<body>
+<main class="app" aria-label="Calculadora compacta de Badulak">
+  <div class="toolbar">
+    <label class="search"><span aria-hidden="true">⌕</span><input type="search" id="search" placeholder="Buscar producto..." aria-label="Buscar producto" autocomplete="off" /></label>
+    <button type="button" id="editPrices" title="Editar precios" aria-label="Editar precios">✎</button>
+  </div>
+  <nav class="filters" id="filters" aria-label="Filtrar productos"></nav>
+  <section class="products" id="products" aria-label="Productos de Badulak"></section>
+  <section class="basket" aria-label="Tu pedido">
+    <button class="basket-toggle" id="basketToggle" type="button" aria-expanded="true"><span class="cart">♡</span><strong>Tu pedido</strong><span class="badge" id="count">0</span><span class="mini-total" id="miniTotal">$0</span><span class="caret" id="caret">⌃</span></button>
+    <div class="basket-body" id="basketBody">
+      <div class="order-lines" id="orderLines"></div>
+      <div class="promos">
+        <div id="cleanPromo" class="promo"><span>✧ Limpieza gratis</span><span id="cleanStatus">Más de $5,000</span></div>
+        <div id="repairPromo" class="promo"><span>✧ Reparación gratis</span><span id="repairStatus">Más de $10,000</span></div>
+      </div>
+      <div class="total"><span>Total a cobrar</span><strong id="total">$0</strong></div>
+      <div class="actions"><button type="button" id="copyTotal" class="primary">⧉ Copiar total</button><button type="button" id="copyOrder">⧉ Copiar pedido</button></div>
+      <details class="summary-details" id="summaryDetails"><summary>Ver detalle del pedido</summary><label class="include"><input type="checkbox" id="includeTotal" /> Incluir total al copiar</label><textarea readonly id="summary" aria-label="Detalle del pedido"></textarea></details>
+      <button type="button" class="clear" id="clear">Vaciar pedido</button>
+    </div>
+  </section>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</main>
+<dialog id="pricesDialog" aria-label="Editar precios de Badulak">
+  <form id="pricesForm" method="dialog">
+    <div class="dialog-header"><h2>Editar precios</h2><button type="button" class="close" id="closePrices" aria-label="Cerrar">×</button></div>
+    <p>Los cambios son solo para tus pedidos y se guardan en SuyTools.</p>
+    <div id="priceFields" class="price-fields"></div>
+    <div class="dialog-actions"><button type="button" id="restorePrices">Restaurar precios</button><button class="primary" type="submit">Guardar</button></div>
+  </form>
+</dialog>
+<script type="module" src="./compact.js"></script>
+</body>
+</html>

@@ -8,13 +8,13 @@ const {autoUpdater} = require('electron-updater');
 
 const APP_NAME = 'SuyTools Taller';
 const ROOT = path.join(__dirname, 'app');
-const BASE = {width:496, side:'right', opacity:1, topmost:true,
+const BASE = {width:496, side:'right', opacity:1, topmost:true, manualBounds:null,
   hotkeys:{toggle:'Control+Alt+O',capture:'Control+Alt+P'}};
 const WIDTHS = [420,496,560];
 const ALLOWED_SHORTCUTS = ['Control+Alt+O','Control+Alt+P','Control+Alt+T', 'Control+Shift+F9',
   'Control+Shift+F10','F9','F10','F11','F12'];
 let settings={...BASE, hotkeys:{...BASE.hotkeys}};
-let win, tray, server, settingsPath, budgetPath, quitting=false, captureBusy=false;
+let win, tray, server, settingsPath, budgetPath, baduPath, quitting=false, captureBusy=false;
 let hotkeyStatus={toggle:false,capture:false};
 let updateState={phase:'idle',message:'Buscando actualizaciones al iniciar',version:null,percent:0};
 let updateBusy=false;
@@ -61,12 +61,15 @@ function loadSettings(){
   const dataDir=app.getPath('userData');
   settingsPath=path.join(dataDir,'overlay-settings.json');
   budgetPath=path.join(dataDir,'taller-budget.json');
+  baduPath=path.join(dataDir,'badulak-order.json');
   try{
     const data=JSON.parse(fs.readFileSync(settingsPath,'utf8'));
     settings.width=WIDTHS.includes(data.width)?data.width:BASE.width;
     settings.side=data.side==='left'?'left':'right';
     settings.opacity=[1,.95,.9].includes(data.opacity)?data.opacity:1;
     settings.topmost=true; // El panel siempre queda encima, sin esconderse al perder foco.
+    const b=data.manualBounds;
+    settings.manualBounds=b&&['x','y','width','height'].every(k=>Number.isFinite(b[k]))&&b.width>=380&&b.height>=480?{x:Math.round(b.x),y:Math.round(b.y),width:Math.round(b.width),height:Math.round(b.height)}:null;
     for(const type of ['toggle','capture']){
       const key=data.hotkeys?.[type];
       if(ALLOWED_SHORTCUTS.includes(key))settings.hotkeys[type]=key;
@@ -75,15 +78,26 @@ function loadSettings(){
   }catch{}
 }
 function saveSettings(){try{fs.mkdirSync(path.dirname(settingsPath),{recursive:true});fs.writeFileSync(settingsPath,JSON.stringify(settings,null,2));}catch(e){console.warn('No se guardaron ajustes',e.message);}}
+let saveSettingsTimer;
+function saveSettingsSoon(){clearTimeout(saveSettingsTimer);saveSettingsTimer=setTimeout(saveSettings,220);}
 function getDisplay(){
   return screen.getDisplayMatching(win?.getBounds()||screen.getPrimaryDisplay().workArea);
 }
 function boundsFor(width=settings.width){
   const work=screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  const safeWidth=Math.min(width,Math.max(340,work.width-20));
-  const height=Math.min(1000,Math.max(460,work.height-28));
+  const saved=settings.manualBounds;
+  if(saved){
+    const display=screen.getDisplayMatching(saved);
+    const area=display.workArea;
+    const w=Math.min(Math.max(380,saved.width),area.width);
+    const h=Math.min(Math.max(480,saved.height),area.height);
+    return {x:Math.min(Math.max(saved.x,area.x),area.x+area.width-w),y:Math.min(Math.max(saved.y,area.y),area.y+area.height-h),width:w,height:h};
+  }
+  const safeWidth=Math.min(width,Math.max(380,work.width-20));
+  const height=Math.min(1000,Math.max(480,work.height-28));
   return {x:settings.side==='right'?work.x+work.width-safeWidth-10:work.x+10,y:work.y+Math.round((work.height-height)/2),width:safeWidth,height};
 }
+
 function publicSettings(){return {...settings,hotkeys:{...settings.hotkeys},registered:{...hotkeyStatus}};}
 function emitSettings(){if(win&&!win.isDestroyed()&&!win.webContents.isLoading())win.webContents.send('suy:settings',publicSettings());}
 function showWindow(){if(!win||win.isDestroyed())return;if(win.isMinimized())win.restore();win.show();win.focus();updateTray();}
@@ -182,12 +196,15 @@ function startAppServer(){
 async function createMainWindow(){
   const url=await startAppServer();
   win=new BrowserWindow({
-    ...boundsFor(),minWidth:360,minHeight:480,frame:false,transparent:true,backgroundColor:'#00000000',
+    ...boundsFor(),title:' ',minWidth:380,minHeight:480,thickFrame:true,frame:false,transparent:true,backgroundColor:'#00000000',
     useContentSize:true,show:false,resizable:true,movable:true,focusable:true,skipTaskbar:false,
     icon:path.join(__dirname,'assets','icon.png'),
     webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,
       sandbox:true,webSecurity:true,devTools:!app.isPackaged,backgroundThrottling:false}
   });
+  // No native title strip or OS tooltip with the obsolete HTML page title.
+  win.webContents.on('page-title-updated',(event)=>{event.preventDefault();win.setTitle(' ');});
+  win.setTitle(' ');
   win.setMenuBarVisibility(false);
   win.setAlwaysOnTop(true,'screen-saver');win.setOpacity(settings.opacity);
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
@@ -198,6 +215,8 @@ async function createMainWindow(){
   win.on('minimize',e=>{e.preventDefault();hideWindow();});
   win.on('close',e=>{if(!quitting){e.preventDefault();hideWindow();}});
   win.on('show',updateTray);win.on('hide',updateTray);
+  const rememberBounds=()=>{if(win?.isDestroyed())return;const b=win.getBounds();if(b.width>=380&&b.height>=480){settings.manualBounds=b;saveSettingsSoon();}};
+  win.on('resize',rememberBounds);win.on('moved',rememberBounds);
   // Perder el foco (hacer clic en FiveM) NUNCA oculta ni minimiza la ventana.
   win.on('blur',()=>{if(!win.isDestroyed()&&win.isVisible())win.setAlwaysOnTop(true,'screen-saver');});
 
@@ -229,9 +248,46 @@ app.whenReady().then(async()=>{
     try{const content=fs.readFileSync(budgetPath,'utf8');e.returnValue=content.length<50000?JSON.parse(content):null;}
     catch{e.returnValue=null;}
   });
+  ipcMain.on('suy:loadBaduSync',e=>{
+    if(!authorized(e)){e.returnValue=null;return;}
+    try{const content=fs.readFileSync(baduPath,'utf8');e.returnValue=content.length<50000?JSON.parse(content):null;}
+    catch{e.returnValue=null;}
+  });
+  ipcMain.on('suy:saveBadu',(e,data)=>{
+    if(!authorized(e)||typeof data!=='string'||data.length>50000)return;
+    try{JSON.parse(data);fs.writeFileSync(baduPath,data,'utf8');}catch(error){console.warn('No se pudo guardar Badulak:',error.message);}
+  });
   ipcMain.on('suy:saveBudget',(e,data)=>{
     if(!authorized(e)||typeof data!=='string'||data.length>50000)return;
     try{JSON.parse(data);fs.writeFileSync(budgetPath,data,'utf8');}catch(err){console.warn('No se pudo guardar presupuesto',err.message);}
+  });
+  // Custom resize handle on frameless transparent windows. Does not depend on native borders.
+  // Manual drag prevents the native Windows title strip appearing above transparent windows.
+  ipcMain.handle('suy:moveWindow',(e,x,y)=>{
+    if(!authorized(e)||!Number.isFinite(x)||!Number.isFinite(y))return false;
+    const b=win.getBounds();
+    const area=screen.getDisplayMatching(b).workArea;
+    const cx=Math.max(area.x,Math.min(Math.round(x),area.x+area.width-b.width));
+    const cy=Math.max(area.y,Math.min(Math.round(y),area.y+area.height-b.height));
+    win.setPosition(cx,cy);
+    settings.manualBounds=win.getBounds();saveSettingsSoon();return true;
+  });
+  ipcMain.handle('suy:resizeWindow',(e,width,height,edge='right')=>{
+    if(!authorized(e)||!Number.isFinite(width)||!Number.isFinite(height))return null;
+    const b=win.getBounds();const area=screen.getDisplayMatching(b).workArea;
+    const newHeight=Math.max(480,Math.min(Math.round(height),area.y+area.height-b.y));
+    let x=b.x,w;
+    if(edge==='left'){
+      // Maintain the right-hand edge: resizing is useful when the overlay touches the screen's right side.
+      const right=b.x+b.width;
+      w=Math.max(380,Math.min(Math.round(width),right-area.x));
+      x=right-w;
+    } else {
+      w=Math.max(380,Math.min(Math.round(width),area.x+area.width-b.x));
+    }
+    win.setBounds({x,y:b.y,width:w,height:newHeight});
+    settings.manualBounds=win.getBounds();saveSettingsSoon();
+    return {width:w,height:newHeight};
   });
   ipcMain.handle('suy:hide',e=>authorized(e)?hideWindow():null);
   ipcMain.handle('suy:copy',(e,value)=>{
@@ -244,8 +300,11 @@ app.whenReady().then(async()=>{
   });
   ipcMain.handle('suy:configure',(e,patch)=>{
     if(!authorized(e)||!patch||typeof patch!=='object')return null;
-    if(WIDTHS.includes(patch.width))settings.width=patch.width;
-    if(['left','right'].includes(patch.side))settings.side=patch.side;
+    if(WIDTHS.includes(patch.width)&&patch.width!==settings.width){
+      settings.width=patch.width;
+      settings.manualBounds=null;
+    }
+    if(['left','right'].includes(patch.side)&&patch.side!==settings.side){settings.side=patch.side;settings.manualBounds=null;}
     if([1,.95,.9].includes(patch.opacity))settings.opacity=patch.opacity;
     settings.topmost=true;
     if(patch.hotkeys){
@@ -269,4 +328,4 @@ app.whenReady().then(async()=>{
 app.on('activate',showWindow);
 app.on('window-all-closed',()=>{});
 app.on('will-quit',()=>{globalShortcut.unregisterAll();server?.close();});
-app.on('before-quit',()=>{quitting=true;});
+app.on('before-quit',()=>{quitting=true;clearTimeout(saveSettingsTimer);saveSettings();});

@@ -63,3 +63,20 @@ html,body{width:100%;height:100%;background:transparent!important;overflow:hidde
 .suy-update-box{margin-top:10px;background:#201c29;border:1px solid #534151;border-radius:12px;padding:10px;display:grid;gap:8px}
 .suy-update-box small{font-size:11px;line-height:1.5;color:#e2c2d3}
 .suy-update-actions{display:flex;gap:6px}.suy-update-actions button{flex:1;font-size:11px;background:#392b39;border:1px solid #855f77;border-radius:8px;color:#fff;padding:8px}.suy-update-actions button:hover{background:#67415d}
+
+/* Embedded Badulak in the same frameless window. */
+.badu-mount{display:flex;flex:1;min-height:0;margin:0 11px 12px;border-radius:13px;overflow:hidden;border:1px solid #4f3a4a;background:#171722}
+.badu-mount[hidden]{display:none!important}
+.badu-mount iframe{display:block;width:100%;height:100%;border:0;background:#171722}
+/* Small visible bottom-right drag handle to resize a frameless Electron window. */
+.suy-resize{position:fixed;right:8px;bottom:8px;z-index:91;width:24px;height:24px;border:0;border-radius:7px 0 14px 0;background:linear-gradient(135deg,transparent 48%,#cf89aa 48% 57%,transparent 57% 67%,#cf89aa 67% 76%,transparent 76%);opacity:.78;cursor:nwse-resize;-webkit-app-region:no-drag;touch-action:none}
+.suy-resize:hover,.suy-resize:focus-visible{opacity:1;background-color:#4a2a3c}
+/* Tightly clipped, opaque corners: prevents ghost lines from a transparent frameless window. */
+.panel{clip-path:inset(0 round 22px)!important}
+body[data-tool="badu"] .bar{border-bottom-color:#644254}
+
+/* Frameless custom movement: avoid the Windows native caption bar artefact. */
+.bar{-webkit-app-region:no-drag!important;cursor:move!important}
+.bar button,.bar a{cursor:pointer!important}
+
+.suy-resize.edge-left{left:8px;right:auto;cursor:nesw-resize;border-radius:0 7px 0 14px;background:linear-gradient(45deg,transparent 48%,#cf89aa 48% 57%,transparent 57% 67%,#cf89aa 67% 76%,transparent 76%)}
