@@ -1,0 +1,34 @@
+{
+  "name": "suytools-taller-overlay",
+  "version": "0.3.0",
+  "description": "Calculadora compacta de taller en una ventana flotante para FiveM",
+  "author": "SuyTools",
+  "main": "main.js",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "35.7.5",
+    "electron-builder": "26.0.12"
+  },
+  "build": {
+    "appId": "com.suytools.taller",
+    "productName": "SuyTools Taller",
+    "asar": true,
+    "directories": {"output": "dist"},
+    "files": ["app/**/*", "assets/**/*", "main.js", "preload.js", "package.json"],
+    "win": {"icon": "assets/icon.ico", "target": [{"target": "nsis", "arch": ["x64"]}]},
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "SuyTools-Taller-Setup-${version}.${ext}",
+      "uninstallDisplayName": "SuyTools Taller"
+    }
+  }
+}
