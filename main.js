@@ -196,7 +196,7 @@ function startAppServer(){
 async function createMainWindow(){
   const url=await startAppServer();
   win=new BrowserWindow({
-    ...boundsFor(),title:'SuyTools',minWidth:380,minHeight:480,thickFrame:false,hasShadow:false,frame:false,transparent:true,backgroundColor:'#00000000',
+    ...boundsFor(),title:'',minWidth:380,minHeight:480,thickFrame:false,hasShadow:false,frame:false,transparent:true,backgroundColor:'#00000000',
     useContentSize:true,show:false,resizable:true,movable:true,focusable:true,skipTaskbar:false,
     icon:path.join(__dirname,'assets','icon.png'),
     webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,
@@ -205,7 +205,7 @@ async function createMainWindow(){
   // Frameless window: no native Windows caption strip, just our own dark header.
   // Prevent older page titles from being displayed in native UI.
   win.webContents.on('page-title-updated',event=>event.preventDefault());
-  win.setTitle('SuyTools');
+  win.setTitle(''); // Sin título nativo, el encabezado visible es el de la app.
   win.setMenuBarVisibility(false);
   win.setAlwaysOnTop(true,'screen-saver');win.setOpacity(settings.opacity);
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));

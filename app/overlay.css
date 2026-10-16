@@ -8,7 +8,7 @@ html,body{width:100%;height:100%;background:transparent!important;overflow:hidde
   background-clip:padding-box!important;isolation:isolate;
 }
 .panel::before{content:'';position:absolute;inset:0;border-radius:22px;pointer-events:none;box-shadow:inset 0 0 0 1px rgba(226,149,179,.22), inset 0 1px 0 rgba(255,255,255,.05);}
-.bar{height:62px!important;padding:0 14px!important;-webkit-app-region:drag;user-select:none;cursor:move}
+.bar{height:62px!important;padding:0 14px!important;-webkit-app-region:no-drag;user-select:none;cursor:move}
 .bar button,.bar input,.bar a,.bar .overlay-config,.bar .overlay-config *{-webkit-app-region:no-drag}
 .logo{height:38px!important;width:38px!important;font-size:29px!important;flex:none}
 .brand{font-size:21px!important}
@@ -80,3 +80,7 @@ body[data-tool="badu"] .bar{border-bottom-color:#644254}
 .bar button,.bar a{cursor:pointer!important}
 
 .suy-resize.edge-left{left:8px;right:auto;cursor:nesw-resize;border-radius:0 7px 0 14px;background:linear-gradient(45deg,transparent 48%,#cf89aa 48% 57%,transparent 57% 67%,#cf89aa 67% 76%,transparent 76%)}
+
+/* v0.6.2: El movimiento lo maneja overlay-ui.js. No usar drag nativo de Chromium.
+   En Windows podía activar una franja de título al perder el foco. */
+.bar,.bar * { -webkit-app-region:no-drag!important; }
