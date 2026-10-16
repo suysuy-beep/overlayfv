@@ -56,3 +56,7 @@ html,body{width:100%;height:100%;background:transparent!important;overflow:hidde
 .capture-foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .capture-foot select{padding:6px;background:#282532;color:white;border:1px solid #6d566c;border-radius:8px}
 .capture-status{color:#edb2d1;font-size:11px;line-height:1.4;min-height:15px}
+
+.suy-update-box{margin-top:10px;background:#201c29;border:1px solid #534151;border-radius:12px;padding:10px;display:grid;gap:8px}
+.suy-update-box small{font-size:11px;line-height:1.5;color:#e2c2d3}
+.suy-update-actions{display:flex;gap:6px}.suy-update-actions button{flex:1;font-size:11px;background:#392b39;border:1px solid #855f77;border-radius:8px;color:#fff;padding:8px}.suy-update-actions button:hover{background:#67415d}

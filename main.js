@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const {URL} = require('url');
+const {autoUpdater} = require('electron-updater');
 
 const APP_NAME = 'SuyTools Taller';
 const ROOT = path.join(__dirname, 'app');
@@ -15,6 +16,45 @@ const ALLOWED_SHORTCUTS = ['Control+Alt+O','Control+Alt+P','Control+Alt+T', 'Con
 let settings={...BASE, hotkeys:{...BASE.hotkeys}};
 let win, tray, server, settingsPath, budgetPath, quitting=false, captureBusy=false;
 let hotkeyStatus={toggle:false,capture:false};
+let updateState={phase:'idle',message:'Buscando actualizaciones al iniciar',version:null,percent:0};
+let updateBusy=false;
+function updateStatus(patch){
+  updateState={...updateState,...patch};
+  if(win&&!win.isDestroyed()&&!win.webContents.isLoading()){
+    win.webContents.send('suy:updateStatus',{...updateState});
+  }
+}
+function startAutoUpdater(){
+  // Evita consultas en la version de desarrollo. Las compilaciones NSIS si tienen app-update.yml.
+  if(!app.isPackaged){
+    updateStatus({phase:'dev',message:'Actualizaciones disponibles en la version instalada.'});
+    return;
+  }
+  autoUpdater.autoDownload=true;
+  autoUpdater.autoInstallOnAppQuit=true;
+  autoUpdater.allowPrerelease=false;
+  autoUpdater.on('checking-for-update',()=>updateStatus({phase:'checking',message:'Buscando nueva version...'}));
+  autoUpdater.on('update-available',info=>updateStatus({phase:'available',message:'Descargando version '+info.version,version:info.version,percent:0}));
+  autoUpdater.on('update-not-available',()=>updateStatus({phase:'current',message:'Esta version esta al dia',percent:0}));
+  autoUpdater.on('download-progress',info=>updateStatus({phase:'downloading',message:'Descargando actualizacion: '+Math.floor(info.percent)+'%',percent:Math.floor(info.percent)}));
+  autoUpdater.on('update-downloaded',info=>updateStatus({phase:'ready',message:'Version '+info.version+' lista. Se instalara al salir de SuyTools.',version:info.version,percent:100}));
+  autoUpdater.on('error',error=>{
+    console.warn('Actualizaciones:',error.message);
+    updateStatus({phase:'error',message:'No se pudo buscar la actualizacion. Reintentar desde ajustes.'});
+  });
+  // No bloquear la interfaz; las comprobaciones siguientes son espaciadas.
+  setTimeout(()=>checkUpdates(),9000);
+  setInterval(()=>checkUpdates(),6*60*60*1000).unref?.();
+}
+async function checkUpdates(){
+  if(updateBusy||!app.isPackaged||updateState.phase==='ready')return;
+  updateBusy=true;
+  try{await autoUpdater.checkForUpdates();}catch(e){
+    console.warn('Error de comprobacion:',e.message);
+    updateStatus({phase:'error',message:'No se pudo comprobar. Comprueba tu conexion o la publicacion en GitHub.'});
+  }finally{updateBusy=false;}
+}
+
 const ownedShortcuts=new Set();
 
 function loadSettings(){
@@ -26,7 +66,7 @@ function loadSettings(){
     settings.width=WIDTHS.includes(data.width)?data.width:BASE.width;
     settings.side=data.side==='left'?'left':'right';
     settings.opacity=[1,.95,.9].includes(data.opacity)?data.opacity:1;
-    settings.topmost=data.topmost!==false;
+    settings.topmost=true; // El panel siempre queda encima, sin esconderse al perder foco.
     for(const type of ['toggle','capture']){
       const key=data.hotkeys?.[type];
       if(ALLOWED_SHORTCUTS.includes(key))settings.hotkeys[type]=key;
@@ -52,7 +92,7 @@ function toggleWindow(){if(win?.isVisible())hideWindow();else showWindow();}
 function applySettings(){
   if(!win||win.isDestroyed())return;
   win.setBounds(boundsFor());win.setOpacity(settings.opacity);
-  win.setAlwaysOnTop(settings.topmost,'floating');updateTray();emitSettings();
+  win.setAlwaysOnTop(true,'screen-saver');updateTray();emitSettings();
 }
 function registerHotkeys(){
   // Only unregister the shortcuts our app owns. Never disturb other apps.
@@ -81,7 +121,7 @@ function updateTray(){if(!tray)return;
     {label:'Ocultar calculadora',enabled:!!win?.isVisible(),click:hideWindow},
     {label:'Capturar pantalla',click:()=>captureDisplay().then(snapshot=>{showWindow();win.webContents.send('suy:captured',snapshot);}).catch(e=>{showWindow();win.webContents.send('suy:captureError',e.message);})},
     {type:'separator'},
-    {label:'Siempre encima',type:'checkbox',checked:settings.topmost,click:item=>{settings.topmost=item.checked;saveSettings();applySettings();}},
+    {label:'Siempre visible al perder foco',enabled:false},
     {type:'separator'},
     {label:'Salir de SuyTools',click:()=>{quitting=true;app.quit();}}
   ]));
@@ -149,7 +189,7 @@ async function createMainWindow(){
       sandbox:true,webSecurity:true,devTools:!app.isPackaged,backgroundThrottling:false}
   });
   win.setMenuBarVisibility(false);
-  win.setAlwaysOnTop(settings.topmost,'floating');win.setOpacity(settings.opacity);
+  win.setAlwaysOnTop(true,'screen-saver');win.setOpacity(settings.opacity);
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   win.webContents.on('will-navigate',(e,url)=>{if(url!==win.webContents.getURL())e.preventDefault();});
   win.webContents.session.setPermissionRequestHandler((_wc,_p,callback)=>callback(false));
@@ -158,6 +198,9 @@ async function createMainWindow(){
   win.on('minimize',e=>{e.preventDefault();hideWindow();});
   win.on('close',e=>{if(!quitting){e.preventDefault();hideWindow();}});
   win.on('show',updateTray);win.on('hide',updateTray);
+  // Perder el foco (hacer clic en FiveM) NUNCA oculta ni minimiza la ventana.
+  win.on('blur',()=>{if(!win.isDestroyed()&&win.isVisible())win.setAlwaysOnTop(true,'screen-saver');});
+
   registerHotkeys();
 }
 const authorized=e=>win&&!win.isDestroyed()&&e.sender===win.webContents;
@@ -167,8 +210,20 @@ app.whenReady().then(async()=>{
   app.on('second-instance',showWindow);
   loadSettings();
   tray=new Tray(path.join(__dirname,'assets','tray.png'));
-  tray.on('click',toggleWindow);updateTray();
+  tray.on('click',showWindow);updateTray();
   ipcMain.handle('suy:getSettings',e=>authorized(e)?publicSettings():null);
+  ipcMain.handle('suy:getUpdateStatus',e=>authorized(e)?{...updateState,currentVersion:app.getVersion()}:null);
+  ipcMain.handle('suy:checkUpdate',e=>{
+    if(!authorized(e))return null;
+    if(!app.isPackaged)return {phase:'dev'};
+    checkUpdates();return {...updateState};
+  });
+  ipcMain.handle('suy:installUpdate',e=>{
+    if(!authorized(e)||updateState.phase!=='ready')return false;
+    quitting=true;
+    setImmediate(()=>autoUpdater.quitAndInstall(false,true));
+    return true;
+  });
   ipcMain.on('suy:loadBudgetSync',e=>{
     if(!authorized(e)){e.returnValue=null;return;}
     try{const content=fs.readFileSync(budgetPath,'utf8');e.returnValue=content.length<50000?JSON.parse(content):null;}
@@ -192,7 +247,7 @@ app.whenReady().then(async()=>{
     if(WIDTHS.includes(patch.width))settings.width=patch.width;
     if(['left','right'].includes(patch.side))settings.side=patch.side;
     if([1,.95,.9].includes(patch.opacity))settings.opacity=patch.opacity;
-    if(typeof patch.topmost==='boolean')settings.topmost=patch.topmost;
+    settings.topmost=true;
     if(patch.hotkeys){
       const incoming={...settings.hotkeys};
       for(const name of ['toggle','capture'])if(ALLOWED_SHORTCUTS.includes(patch.hotkeys[name]))incoming[name]=patch.hotkeys[name];
@@ -209,7 +264,7 @@ app.whenReady().then(async()=>{
     }
     saveSettings();applySettings();return publicSettings();
   });
-  try{await createMainWindow();}catch(error){console.error('SuyTools no pudo iniciar:',error);app.quit();}
+  try{await createMainWindow();startAutoUpdater();}catch(error){console.error('SuyTools no pudo iniciar:',error);app.quit();}
 });
 app.on('activate',showWindow);
 app.on('window-all-closed',()=>{});

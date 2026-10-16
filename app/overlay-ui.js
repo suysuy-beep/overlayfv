@@ -12,16 +12,20 @@
   const captureBtn=button('▣','Capturar juego e importar productos','overlay-capture-btn');
   const importBtn=button('⇧','Importar una captura guardada','overlay-import-btn');
   const configBtn=button('⚙','Opciones del overlay','overlay-options-btn');
-  const minimize=button('−','Ocultar en bandeja del sistema','overlay-hide');
   const config=document.createElement('div');config.className='overlay-config';config.hidden=true;
   config.innerHTML=`<h2>♡ Opciones del overlay</h2>
     <label for="suyWidth">Ancho del panel</label><select id="suyWidth"><option value="420">Estrecho · 420 px</option><option value="496">Normal · 496 px</option><option value="560">Amplio · 560 px</option></select>
     <label for="suySide">Lado de la pantalla</label><select id="suySide"><option value="right">Derecha</option><option value="left">Izquierda</option></select>
     <label for="suyOpacity">Transparencia</label><select id="suyOpacity"><option value="1">100% (opaco)</option><option value="0.95">95%</option><option value="0.9">90%</option></select>
-    <div class="overlay-config-row"><span>Mantener encima</span><input type="checkbox" id="suyAlwaysOnTop" checked></div>
+    <small>Siempre visible: al hacer clic fuera, el panel permanece encima del juego. Se oculta solo cuando tú lo indicas.</small>
     <label for="suyToggleHotkey">Mostrar / ocultar</label><select id="suyToggleHotkey"></select>
     <label for="suyCaptureHotkey">Tomar captura</label><select id="suyCaptureHotkey"></select>
     <small id="suyHotkeyStatus">Comprobando atajos…</small>
+    <div class="suy-update-box">
+      <label>Actualizaciones</label>
+      <small id="suyUpdateStatus">Buscando actualizaciones...</small>
+      <div class="suy-update-actions"><button type="button" id="suyCheckUpdate">Buscar ahora</button><button type="button" id="suyInstallUpdate" hidden>Instalar y reiniciar</button></div>
+    </div>
     <small>Los atajos funcionan aunque estés dentro del juego, siempre que Windows y FiveM no tengan ocupada esa combinación. La captura es puntual y solo queda en memoria.</small>
     <button type="button" class="overlay-config-close" id="suyCloseSettings">Listo</button>`;
   const comboList=['Control+Alt+O','Control+Alt+P','Control+Alt+T','Control+Shift+F9','Control+Shift+F10','F9','F10','F11','F12'];
@@ -35,7 +39,6 @@
     config.querySelector('#suyWidth').value=String(settings.width);
     config.querySelector('#suySide').value=settings.side;
     config.querySelector('#suyOpacity').value=String(settings.opacity);
-    config.querySelector('#suyAlwaysOnTop').checked=settings.topmost;
     config.querySelector('#suyToggleHotkey').value=settings.hotkeys.toggle;
     config.querySelector('#suyCaptureHotkey').value=settings.hotkeys.capture;
     const both=settings.registered?.toggle&&settings.registered?.capture;
@@ -45,14 +48,23 @@
   const save=async()=>{
     const old=await api.getSettings();
     const patch={width:Number(config.querySelector('#suyWidth').value),side:config.querySelector('#suySide').value,
-      opacity:Number(config.querySelector('#suyOpacity').value),topmost:config.querySelector('#suyAlwaysOnTop').checked,
+      opacity:Number(config.querySelector('#suyOpacity').value),
       hotkeys:{toggle:config.querySelector('#suyToggleHotkey').value,capture:config.querySelector('#suyCaptureHotkey').value}};
     try{sync(await api.configure(patch));}catch(err){sync(old);config.querySelector('#suyHotkeyStatus').textContent='⚠ '+(err.message||'No se pudo asignar el atajo');}
   };
   config.addEventListener('change',save);
   configBtn.addEventListener('click',()=>{config.hidden=!config.hidden;});
   config.querySelector('#suyCloseSettings').addEventListener('click',()=>{config.hidden=true;});
-  minimize.addEventListener('click',()=>api.hide());
+  const showUpdate=state=>{
+    if(!state)return;
+    const current=state.currentVersion?` (v${state.currentVersion})`:'';
+    config.querySelector('#suyUpdateStatus').textContent=(state.message||'Actualizaciones sin configurar')+current;
+    config.querySelector('#suyInstallUpdate').hidden=state.phase!=='ready';
+  };
+  config.querySelector('#suyCheckUpdate').addEventListener('click',()=>api.checkUpdate());
+  config.querySelector('#suyInstallUpdate').addEventListener('click',()=>api.installUpdate());
+  api.onUpdate(showUpdate);
+  api.getUpdateStatus().then(showUpdate).catch(console.warn);
   const load=async()=>{try{sync(await api.getSettings());}catch(e){console.error(e);}};
   load();api.onSettings(sync);
   captureBtn.addEventListener('click',()=>window.dispatchEvent(new Event('suy:startCapture')));

@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('suytools',Object.freeze({
   captureScreen:()=>ipcRenderer.invoke('suy:capture'),
   loadBudgetSync:()=>ipcRenderer.sendSync('suy:loadBudgetSync'),
   saveBudget:state=>ipcRenderer.send('suy:saveBudget',JSON.stringify(state)),
+  getUpdateStatus:()=>ipcRenderer.invoke('suy:getUpdateStatus'),
+  checkUpdate:()=>ipcRenderer.invoke('suy:checkUpdate'),
+  installUpdate:()=>ipcRenderer.invoke('suy:installUpdate'),
+  onUpdate:callback=>on('suy:updateStatus',callback),
   onSettings:callback=>on('suy:settings',callback),
   onCaptured:callback=>on('suy:captured',callback),
   onCaptureError:callback=>on('suy:captureError',callback)

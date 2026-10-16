@@ -1,7 +1,7 @@
 {
   "name": "suytools-taller-overlay",
-  "version": "0.4.0",
-  "description": "Calculadora compacta de taller en una ventana flotante para FiveM",
+  "version": "0.5.0",
+  "description": "Overlay compacto siempre visible para taller FiveM, con actualizaciones automaticas",
   "author": "SuyTools",
   "main": "main.js",
   "private": true,
@@ -18,9 +18,27 @@
     "appId": "com.suytools.taller",
     "productName": "SuyTools Taller",
     "asar": true,
-    "directories": {"output": "dist"},
-    "files": ["app/**/*", "assets/**/*", "main.js", "preload.js", "package.json"],
-    "win": {"icon": "assets/icon.ico", "target": [{"target": "nsis", "arch": ["x64"]}]},
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "app/**/*",
+      "assets/**/*",
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
@@ -29,6 +47,17 @@
       "createStartMenuShortcut": true,
       "artifactName": "SuyTools-Taller-Setup-${version}.${ext}",
       "uninstallDisplayName": "SuyTools Taller"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "suysuy-beep",
+        "repo": "overlayfv",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "6.6.2"
   }
 }
