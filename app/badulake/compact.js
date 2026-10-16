@@ -26,7 +26,21 @@ $('#products').addEventListener('click',e=>{let b=e.target.closest('[data-delta]
 $('#products').addEventListener('change',e=>{let input=e.target.closest('input.qty');if(!input)return;const id=input.closest('[data-id]').dataset.id;quantities[id]=quantity(input.value);renderProducts();renderBasket();persist();});
 $('#basketToggle').addEventListener('click',()=>{basketOpen=!basketOpen;renderBasket();persist();});
 $('#includeTotal').addEventListener('change',e=>{includeTotal=e.target.checked;renderBasket();persist();});
-$('#clear').addEventListener('click',()=>{if(!Object.values(quantities).some(Boolean))return;if(!confirm('¿Vaciar el pedido de Badulak?'))return;quantities=Object.fromEntries(products.map(p=>[p.id,0]));render();notify('Pedido vacío ♡');});
+// Confirmación propia de SuyTools: evita el sonido de aviso de la ventana nativa de Windows.
+const clearDialog=$('#clearDialog');
+$('#clear').addEventListener('click',()=>{
+ if(!Object.values(quantities).some(Boolean)||clearDialog.open)return;
+ clearDialog.showModal();
+});
+$('#cancelClear').addEventListener('click',()=>clearDialog.close());
+$('#confirmClear').addEventListener('click',()=>{
+ // Verificamos otra vez para no eliminar nada que ya esté vacío.
+ if(!Object.values(quantities).some(Boolean)){clearDialog.close();return;}
+ quantities=Object.fromEntries(products.map(p=>[p.id,0]));
+ clearDialog.close();
+ render();
+ notify('Pedido vacío ♡');
+});
 async function copy(text){if(!text){notify('Primero agrega un producto');return;}try{if(parentApi?.copyText){const ok=await parentApi.copyText(text);if(!ok)throw new Error('No se pudo copiar');}else{await navigator.clipboard.writeText(text);}notify('Copiado al portapapeles ♡');}catch{const field=document.createElement('textarea');field.value=text;document.body.appendChild(field);field.select();const ok=document.execCommand('copy');field.remove();notify(ok?'Copiado al portapapeles ♡':'No se pudo copiar');}}
 $('#copyOrder').addEventListener('click',()=>copy(calculate(products,quantities,includeTotal).summary));
 $('#copyTotal').addEventListener('click',()=>copy(String(Math.round(calculate(products,quantities).total))));

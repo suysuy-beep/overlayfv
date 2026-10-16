@@ -38,6 +38,14 @@
     <div class="dialog-actions"><button type="button" id="restorePrices">Restaurar precios</button><button class="primary" type="submit">Guardar</button></div>
   </form>
 </dialog>
+<dialog id="clearDialog" class="confirm-dialog" aria-labelledby="clearDialogTitle" aria-describedby="clearDialogDescription">
+  <h2 id="clearDialogTitle">¿Vaciar el pedido?</h2>
+  <p id="clearDialogDescription">Se quitarán los productos seleccionados. Tus precios personalizados se conservarán.</p>
+  <div class="dialog-actions">
+    <button type="button" id="cancelClear">Cancelar</button>
+    <button type="button" class="primary" id="confirmClear">Sí, vaciar</button>
+  </div>
+</dialog>
 <script type="module" src="./compact.js"></script>
 </body>
 </html>
