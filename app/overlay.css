@@ -1,5 +1,5 @@
 /* Solo se aplica dentro de la ventana nativa de SuyTools. */
-html,body{width:100%;height:100%;background:transparent!important;overflow:hidden!important;padding:8px!important;box-sizing:border-box!important}
+html,body{width:100%;height:100%;background:#141620!important;overflow:hidden!important;padding:0!important;box-sizing:border-box!important}
 .environment,.hint{display:none!important}
 .panel{
   position:relative!important;inset:auto!important;width:100%!important;height:100%!important;max-width:none!important;
@@ -84,3 +84,9 @@ body[data-tool="badu"] .bar{border-bottom-color:#644254}
 /* v0.6.2: El movimiento lo maneja overlay-ui.js. No usar drag nativo de Chromium.
    En Windows podía activar una franja de título al perder el foco. */
 .bar,.bar * { -webkit-app-region:no-drag!important; }
+
+/* v0.6.3: opaque frameless Windows surface (no transparent DWM inactive-caption artifact). */
+.panel{border-radius:17px!important;clip-path:inset(0 round 17px)!important;box-shadow:none!important;}
+.panel::before{border-radius:17px!important;}
+.suy-resize{bottom:2px;right:2px}
+.suy-resize.edge-left{left:2px;right:auto}

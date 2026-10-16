@@ -1,6 +1,6 @@
 {
   "name": "suytools-taller-overlay",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "SuyTools: Taller y Badulak compactos, capturas y ventana redimensionable",
   "author": "SuyTools",
   "main": "main.js",

@@ -196,8 +196,11 @@ function startAppServer(){
 async function createMainWindow(){
   const url=await startAppServer();
   win=new BrowserWindow({
-    ...boundsFor(),title:'',minWidth:380,minHeight:480,thickFrame:false,hasShadow:false,frame:false,transparent:true,backgroundColor:'#00000000',
-    useContentSize:true,show:false,resizable:true,movable:true,focusable:true,skipTaskbar:false,
+    ...boundsFor(),title:'',minWidth:380,minHeight:480,thickFrame:false,roundedCorners:true,hasShadow:false,
+    frame:false,transparent:false,backgroundColor:'#141620',
+    // Windows 11 + Electron 35: transparent frameless windows can draw a pale native caption on blur.
+    // Programmatic movement/resizing still works with the custom grip without the native resize frame.
+    useContentSize:true,show:false,resizable:false,movable:true,focusable:true,skipTaskbar:false,
     icon:path.join(__dirname,'assets','icon.png'),
     webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,
       sandbox:true,webSecurity:true,devTools:!app.isPackaged,backgroundThrottling:false}
@@ -218,8 +221,8 @@ async function createMainWindow(){
   win.on('show',updateTray);win.on('hide',updateTray);
   const rememberBounds=()=>{if(win?.isDestroyed())return;const b=win.getBounds();if(b.width>=380&&b.height>=480){settings.manualBounds=b;saveSettingsSoon();}};
   win.on('resize',rememberBounds);win.on('moved',rememberBounds);
-  // Perder el foco (hacer clic en FiveM) NUNCA oculta ni minimiza la ventana.
-  win.on('blur',()=>{if(!win.isDestroyed()&&win.isVisible())win.setAlwaysOnTop(true,'screen-saver');});
+  // No modify window styles on blur: Electron/Windows may redraw a native caption strip.
+  // Always-on-top is configured once in setup/applySettings, not every time FiveM receives focus.
 
   registerHotkeys();
 }
@@ -262,8 +265,8 @@ app.whenReady().then(async()=>{
     if(!authorized(e)||typeof data!=='string'||data.length>50000)return;
     try{JSON.parse(data);fs.writeFileSync(budgetPath,data,'utf8');}catch(err){console.warn('No se pudo guardar presupuesto',err.message);}
   });
-  // Custom resize handle on frameless transparent windows. Does not depend on native borders.
-  // Manual drag prevents the native Windows title strip appearing above transparent windows.
+  // Custom resize handle on a frameless opaque window. Does not depend on native borders.
+  // Manual drag uses IPC instead of native Windows caption hit-testing.
   ipcMain.handle('suy:moveWindow',(e,x,y)=>{
     if(!authorized(e)||!Number.isFinite(x)||!Number.isFinite(y))return false;
     const b=win.getBounds();
