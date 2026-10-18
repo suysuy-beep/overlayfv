@@ -286,7 +286,8 @@ app.whenReady().then(async()=>{
   ipcMain.handle('suy:installUpdate',e=>{
     if(!authorized(e)||updateState.phase!=='ready')return false;
     quitting=true;
-    setImmediate(()=>autoUpdater.quitAndInstall(false,true));
+    // NSIS: instalar sin asistente (isSilent=true) y volver a abrir la app.
+    setImmediate(()=>autoUpdater.quitAndInstall(true,true));
     return true;
   });
   ipcMain.on('suy:loadBudgetSync',e=>{
